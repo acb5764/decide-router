@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": {
+      "command": "node",
+      "args": ["${plugin}/dist/hooks/session-start.js"]
+    },
+    "beforeShellExecution": {
+      "command": "node",
+      "args": ["${plugin}/dist/hooks/before-shell.js"]
+    },
+    "beforeMCPExecution": {
+      "command": "node",
+      "args": ["${plugin}/dist/hooks/before-mcp.js"]
+    },
+    "preToolUse": {
+      "command": "node",
+      "args": ["${plugin}/dist/hooks/pre-tool.js"]
+    },
+    "postToolUse": {
+      "command": "node",
+      "args": ["${plugin}/dist/hooks/post-tool.js"]
+    },
+    "preCompact": {
+      "command": "node",
+      "args": ["${plugin}/dist/hooks/pre-compact.js"]
+    },
+    "stop": {
+      "command": "node",
+      "args": ["${plugin}/dist/hooks/stop.js"]
+    }
+  }
+}

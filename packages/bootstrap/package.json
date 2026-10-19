@@ -1,0 +1,33 @@
+{
+  "name": "@decide-router/bootstrap",
+  "version": "0.1.0",
+  "description": "Session/project bootstrap: ingest rules, extract labels, materialize trees",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "bin": {
+    "decide-router-bootstrap": "./src/cli.ts"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@decide-router/core": "workspace:*",
+    "@decide-router/backends": "workspace:*",
+    "@decide-router/trees": "workspace:*",
+    "@decide-router/policy": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

@@ -1,0 +1,19 @@
+# Sample Cursor project config for Decide-Router
+goal: "Ship features safely without touching production"
+playbooks:
+  - safe-change
+  - bootstrapped-alignment
+bootstrap:
+  onSessionStart: true
+  minConfidence: 0.72
+decisions:
+  action_gate:
+    min_confidence: 0.72
+    mid_cascade: true
+  loop_detector:
+    window: 12
+    max_repeats: 2
+  context_prune:
+    enabled: true
+audit:
+  path: ".decide-router/audit.jsonl"
