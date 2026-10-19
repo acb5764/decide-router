@@ -69,14 +69,17 @@ function engineFor(cwd: string, goal: string): DecideEngine {
     playbook = undefined;
   }
 
+  // Do NOT force fail_closed: false on policy — that flag is for invalid-regex
+  // handling, separate from process-crash / backend fail-open.
   return new DecideEngine({
     backend: new FallbackBackend(
       new GlinerDecideBackend(),
       new HeuristicBackend(),
     ),
-    policy: new DeterministicPolicyEngine({ ...policy, fail_closed: false }),
+    policy: new DeterministicPolicyEngine(policy),
     store: new MemorySessionTraceStore(),
     playbook,
+    // Backend crash → allow. Policy denials still apply when evaluated.
     config: { failClosed: false },
   });
 }
