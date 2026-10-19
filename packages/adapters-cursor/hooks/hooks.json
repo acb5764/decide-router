@@ -1,33 +1,42 @@
 {
   "version": 1,
   "hooks": {
-    "sessionStart": {
-      "command": "node",
-      "args": ["${plugin}/dist/hooks/session-start.js"]
-    },
-    "beforeShellExecution": {
-      "command": "node",
-      "args": ["${plugin}/dist/hooks/before-shell.js"]
-    },
-    "beforeMCPExecution": {
-      "command": "node",
-      "args": ["${plugin}/dist/hooks/before-mcp.js"]
-    },
-    "preToolUse": {
-      "command": "node",
-      "args": ["${plugin}/dist/hooks/pre-tool.js"]
-    },
-    "postToolUse": {
-      "command": "node",
-      "args": ["${plugin}/dist/hooks/post-tool.js"]
-    },
-    "preCompact": {
-      "command": "node",
-      "args": ["${plugin}/dist/hooks/pre-compact.js"]
-    },
-    "stop": {
-      "command": "node",
-      "args": ["${plugin}/dist/hooks/stop.js"]
-    }
+    "sessionStart": [
+      {
+        "command": "./hooks/decide-router-session-start.mjs",
+        "timeout": 8
+      }
+    ],
+    "beforeShellExecution": [
+      {
+        "command": "./hooks/decide-router-before-shell.mjs",
+        "timeout": 6
+      }
+    ],
+    "beforeMCPExecution": [
+      {
+        "command": "./hooks/decide-router-before-mcp.mjs",
+        "timeout": 6
+      }
+    ],
+    "preToolUse": [
+      {
+        "command": "./hooks/decide-router-pre-tool.mjs",
+        "matcher": "Shell|Bash|Write|Delete|Edit|StrReplace|MCP|mcp",
+        "timeout": 7
+      }
+    ],
+    "stop": [
+      {
+        "command": "./hooks/decide-router-stop.mjs",
+        "timeout": 5
+      }
+    ],
+    "preCompact": [
+      {
+        "command": "./hooks/decide-router-pre-compact.mjs",
+        "timeout": 8
+      }
+    ]
   }
 }

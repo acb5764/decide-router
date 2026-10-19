@@ -91,17 +91,30 @@ Installs [`skills/decide-router/SKILL.md`](./skills/decide-router/SKILL.md) into
 | Skill installer | `pnpm skill` + `skills/decide-router/` |
 | Eval: don’t game the skill | `packages/eval/src/cost-quality-policy.md` |
 
-## How to run hooks
+## How to run hooks (real authorization)
+
+Hooks are **not** markdown suggestions — they are Cursor authorization gates. They **fail open** if Decide-Router errors; deterministic policy can still `deny` when evaluation succeeds.
 
 ### Cursor
 
-1. Build packages (`pnpm build`)
-2. Point your Cursor plugin at `packages/adapters-cursor/hooks/hooks.json`
-3. Copy `packages/adapters-cursor/sample-config.yaml` or use root `decide-router.config.yaml`
-4. Optional `sessionStart` runs bootstrap and injects the agent checklist
-5. Audit log: `.decide-router/audit.jsonl`
+```bash
+pnpm build
+pnpm install-hooks          # merges ~/.cursor/hooks.json + copies hooks/*.mjs
+decide-router-cursor status
+```
 
-Hooks wired: `beforeShellExecution`, `beforeMCPExecution`, `preToolUse`, `postToolUse`, `preCompact`, `stop`, plus optional `sessionStart`.
+| Event | Function | Authorizes |
+|-------|----------|------------|
+| `sessionStart` | `sessionStart()` | Session context + bootstrap |
+| `beforeShellExecution` | `beforeShellExecution()` | Shell commands |
+| `beforeMCPExecution` | `beforeMCPExecution()` | MCP calls |
+| `preToolUse` | `preToolUse()` | Write/Delete/Shell/… (matcher) |
+| `stop` | `stop()` | Loop / distraction interrupt |
+| `preCompact` | `preCompact()` | Compaction advice |
+
+Handlers live in `packages/adapters-cursor/src/handlers/`. Entrypoints: `packages/adapters-cursor/hooks/decide-router-*.mjs`.
+
+Audit: `~/.cursor/decide-router/audit.jsonl` (configurable).
 
 ### Claude Code
 

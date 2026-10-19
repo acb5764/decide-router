@@ -10,6 +10,7 @@
     "eval:safety": "pnpm --filter @decide-router/eval run eval:safety",
     "bootstrap": "pnpm --filter @decide-router/bootstrap exec tsx src/cli.ts",
     "skill": "pnpm --filter @decide-router/bootstrap exec tsx src/skill-cli.ts",
+    "install-hooks": "pnpm --filter @decide-router/adapters-cursor exec tsx src/cli.ts install",
     "typecheck": "pnpm -r run typecheck"
   },
   "devDependencies": {

@@ -1,24 +1,36 @@
 {
   "version": 1,
-  "description": "Claude Code / Agent Plugins hooks for Decide-Router",
+  "description": "Claude Code authorization hooks for Decide-Router (fail open)",
   "hooks": {
-    "SessionStart": {
-      "command": "node",
-      "args": ["${plugin}/dist/hooks/session-start.js"]
-    },
-    "PreToolUse": {
-      "command": "node",
-      "args": ["${plugin}/dist/hooks/pre-tool.js"],
-      "matcher": ".*"
-    },
-    "PostToolUse": {
-      "command": "node",
-      "args": ["${plugin}/dist/hooks/post-tool.js"],
-      "matcher": ".*"
-    },
-    "Stop": {
-      "command": "node",
-      "args": ["${plugin}/dist/hooks/stop.js"]
-    }
+    "SessionStart": [
+      {
+        "command": "node",
+        "args": ["${plugin}/dist/hooks/session-start.js"],
+        "timeout": 8
+      }
+    ],
+    "PreToolUse": [
+      {
+        "command": "node",
+        "args": ["${plugin}/dist/hooks/pre-tool.js"],
+        "matcher": ".*",
+        "timeout": 7
+      }
+    ],
+    "PostToolUse": [
+      {
+        "command": "node",
+        "args": ["${plugin}/dist/hooks/post-tool.js"],
+        "matcher": ".*",
+        "timeout": 5
+      }
+    ],
+    "Stop": [
+      {
+        "command": "node",
+        "args": ["${plugin}/dist/hooks/stop.js"],
+        "timeout": 5
+      }
+    ]
   }
 }

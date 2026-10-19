@@ -74,14 +74,14 @@ function engineFor(cwd: string, goal: string): DecideEngine {
       new GlinerDecideBackend(),
       new HeuristicBackend(),
     ),
-    policy: new DeterministicPolicyEngine(policy),
+    policy: new DeterministicPolicyEngine({ ...policy, fail_closed: false }),
     store: new MemorySessionTraceStore(),
     playbook,
-    config: { failClosed: true },
+    config: { failClosed: false },
   });
 }
 
-/** Map Claude PreToolUse / Bash to the same core path as Cursor. */
+/** Map Claude PreToolUse / Bash to the same core path as Cursor. Fail open. */
 export async function claudePreToolUse(input: {
   sessionId?: string;
   toolName: string;
@@ -90,30 +90,42 @@ export async function claudePreToolUse(input: {
   goal?: string;
   cwd?: string;
 }): Promise<{ permission: "allow" | "deny" | "ask"; verdict: Verdict }> {
-  const cwd = input.cwd ?? process.cwd();
-  const sessionId = input.sessionId ?? "claude-session";
-  const isShell = /bash|shell|terminal/i.test(input.toolName) || !!input.command;
+  try {
+    const cwd = input.cwd ?? process.cwd();
+    const sessionId = input.sessionId ?? "claude-session";
+    const isShell =
+      /bash|shell|terminal/i.test(input.toolName) || !!input.command;
 
-  const engine = engineFor(cwd, input.goal ?? "Complete the task safely");
-  const req = normalizeEvent({
-    harness: "claude",
-    hook: isShell ? "beforeShellExecution" : "preToolUse",
-    sessionId,
-    goal: input.goal ?? "Complete the task safely",
-    toolName: input.toolName,
-    command: input.command,
-    args: input.args,
-    recentActions: recentBySession.get(sessionId) ?? [],
-  });
+    const engine = engineFor(cwd, input.goal ?? "Complete the task safely");
+    const req = normalizeEvent({
+      harness: "claude",
+      hook: isShell ? "beforeShellExecution" : "preToolUse",
+      sessionId,
+      goal: input.goal ?? "Complete the task safely",
+      toolName: input.toolName,
+      command: input.command,
+      args: input.args,
+      recentActions: recentBySession.get(sessionId) ?? [],
+    });
 
-  const verdict = await engine.decide(req);
-  const permission =
-    verdict.action === "deny"
-      ? "deny"
-      : verdict.action === "ask"
-        ? "ask"
-        : "allow";
-  return { permission, verdict };
+    const verdict = await engine.decide(req);
+    const permission =
+      verdict.action === "deny"
+        ? "deny"
+        : verdict.action === "ask"
+          ? "ask"
+          : "allow";
+    return { permission, verdict };
+  } catch {
+    return {
+      permission: "allow",
+      verdict: {
+        action: "allow",
+        reasons: ["fail_open"],
+        policyOverrides: [],
+      },
+    };
+  }
 }
 
 export async function claudePostToolUse(input: {

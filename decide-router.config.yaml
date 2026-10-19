@@ -22,7 +22,8 @@ policy:
     - "*"
     - "*:*"
     - "AdministratorAccess"
-  fail_closed: true
+  # Hook path fails open on engine/backend errors; policy still denies when it runs.
+  fail_closed: false
   scan_secrets: true
   include_sensitive: false
 decisions:

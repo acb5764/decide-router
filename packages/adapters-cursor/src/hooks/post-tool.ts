@@ -1,24 +1,31 @@
 #!/usr/bin/env node
-import { handleHook } from "../runtime.js";
-import { readStdinJson, writeResult } from "./read-stdin.js";
+/**
+ * Optional postToolUse — records traces for loop detection; fail-open continue.
+ */
+import {
+  cwdOf,
+  failOpen,
+  readStdinJson,
+  sessionIdOf,
+  toolNameOf,
+  writeHookResult,
+} from "../hook-protocol.js";
+import { authorizeHook } from "../runtime.js";
 
-const input = await readStdinJson<{
-  sessionId?: string;
-  toolName?: string;
-  args?: unknown;
-  cwd?: string;
-}>();
+const input = await readStdinJson();
+const result = await failOpen(
+  async () =>
+    authorizeHook({
+      hook: "postToolUse",
+      sessionId: sessionIdOf(input),
+      toolName: toolNameOf(input) || "Unknown",
+      args: input.tool_input ?? input.args,
+      cwd: cwdOf(input),
+    }),
+  { permission: "allow" as const },
+);
 
-const result = await handleHook({
-  hook: "postToolUse",
-  sessionId: input.sessionId,
-  toolName: input.toolName,
-  args: input.args,
-  cwd: input.cwd,
-});
-
-writeResult({
+writeHookResult({
   continue: result.permission !== "deny",
-  agentMessage: result.verdict.hint,
-  reasons: result.verdict.reasons,
+  agent_message: result.agent_message,
 });
