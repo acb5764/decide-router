@@ -6,7 +6,8 @@
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "bin": {
-    "decide-router-bootstrap": "./src/cli.ts"
+    "decide-router-bootstrap": "./src/cli.ts",
+    "decide-router-skill": "./src/skill-cli.ts"
   },
   "exports": {
     ".": {

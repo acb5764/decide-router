@@ -51,6 +51,8 @@ pnpm eval:safety
 
 Config sketch: [`decide-router.config.yaml`](./decide-router.config.yaml)
 
+> If `pnpm install` fails with `EPERM`/`ENOSYS` on a network/project store mount, copy the repo to a normal filesystem (e.g. `/tmp/decide-router`), install and test there, then sync sources back.
+
 ## Bootstrap (session / project alignment)
 
 At session or project start, improve alignment from real preference files:
@@ -69,6 +71,25 @@ What it does:
 4. **Write** `.decide-router/bootstrap/AGENT_BOOTSTRAP.md` checklist for the host agent
 
 Bootstrapped trees still pass through deterministic policy.
+
+### Agent skill (jevgrep-style)
+
+```bash
+pnpm skill
+# or: decide-router-skill [--global] [--yes]
+```
+
+Installs [`skills/decide-router/SKILL.md`](./skills/decide-router/SKILL.md) into detected Claude / Cursor / `.agents` skill dirs. Teaches **invocation and semantics only** — not general debugging (see eval policy).
+
+## Lessons from jevgrep (adopted)
+
+| Pattern | Where |
+|---------|--------|
+| Boolean questions + criteria in `state` | `@decide-router/backends` `JevBackend` / `buildJevEvaluationRequest` |
+| Secret content heuristics (fail-closed) | `@decide-router/policy` `secrets.ts` |
+| Honest incomplete / cascade_miss / budget | `@decide-router/core` `Verdict.completeness` + tool routing |
+| Skill installer | `pnpm skill` + `skills/decide-router/` |
+| Eval: don’t game the skill | `packages/eval/src/cost-quality-policy.md` |
 
 ## How to run hooks
 

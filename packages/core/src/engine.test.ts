@@ -86,13 +86,25 @@ describe("loop detector", () => {
 });
 
 describe("tool routing", () => {
-  it("cascade misses below threshold", () => {
+  it("cascade misses below threshold honestly (ask, not silent allow)", () => {
     const v = applyToolRouting(
       [{ tool: "Read", score: 0.4 }],
       { mode: "cascade", top_k: 3, min_confidence: 0.65 },
     );
-    expect(v.action).toBe("allow");
+    expect(v.action).toBe("ask");
+    expect(v.completeness).toBe("cascade_miss");
     expect(v.reasons).toContain("cascade_miss");
+  });
+
+  it("reports budget_exhausted when attempts exceed limit", () => {
+    const v = applyToolRouting(
+      [{ tool: "Read", score: 0.9 }],
+      { mode: "cascade", top_k: 3, min_confidence: 0.65, max_attempts: 2 },
+      undefined,
+      { attemptsUsed: 2 },
+    );
+    expect(v.completeness).toBe("budget_exhausted");
+    expect(v.action).toBe("ask");
   });
 });
 

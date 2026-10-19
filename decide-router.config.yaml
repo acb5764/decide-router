@@ -23,6 +23,8 @@ policy:
     - "*:*"
     - "AdministratorAccess"
   fail_closed: true
+  scan_secrets: true
+  include_sensitive: false
 decisions:
   action_gate:
     min_confidence: 0.72

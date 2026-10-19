@@ -28,6 +28,16 @@ export type ToolRoutingMode =
 
 export type VerdictAction = "allow" | "deny" | "ask" | "rewrite";
 
+/**
+ * Honest completeness (jevgrep-inspired).
+ * incomplete / budget_exhausted must never be treated as silent allow of risk.
+ */
+export type DecisionCompleteness =
+  | "complete"
+  | "incomplete"
+  | "budget_exhausted"
+  | "cascade_miss";
+
 export interface ActionSummary {
   toolName: string;
   argsPreview?: string;
@@ -91,6 +101,17 @@ export interface Verdict {
   policyOverrides: string[];
   /** Probability vector for logging / threshold fitting. */
   probabilities?: Record<string, number>;
+  /**
+   * Discovery/decision completeness. Missing or unknown context is incomplete —
+   * never pretend certainty. Cascade miss and budget exhaustion are explicit.
+   */
+  completeness?: DecisionCompleteness;
+  /** Optional budget accounting for routing / scoring attempts. */
+  budget?: {
+    used: number;
+    limit: number;
+    kind: "routing" | "scoring" | "loop_window";
+  };
 }
 
 export interface SessionTraceEntry {

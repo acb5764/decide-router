@@ -6,6 +6,7 @@ import type {
   Verdict,
 } from "@decide-router/core";
 import { DEFAULT_POLICY, type PolicyConfig } from "./types.js";
+import { scanSecrets } from "./secrets.js";
 
 export class DeterministicPolicyEngine implements PolicyEngine {
   constructor(private readonly config: PolicyConfig = DEFAULT_POLICY) {}
@@ -19,6 +20,18 @@ export class DeterministicPolicyEngine implements PolicyEngine {
     ]
       .join(" ")
       .trim();
+
+    // Content-level secrets — fail closed (unless include_sensitive)
+    if (this.config.scan_secrets !== false && !this.config.include_sensitive) {
+      const hits = scanSecrets(request.context.argsPreview ?? text);
+      if (hits.length > 0) {
+        overrides.push(`secret_content:${hits[0]!.kind}`);
+        reasons.push(
+          `Blocked likely secret content (${hits.map((h) => h.kind).join(",")}); best-effort detection, not a guarantee`,
+        );
+        return deny(scores, reasons, overrides);
+      }
+    }
 
     // Protected paths — fail closed
     for (const glob of this.config.protected_paths) {

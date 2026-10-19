@@ -12,6 +12,10 @@ export interface PolicyConfig {
   fail_closed: boolean;
   tool_allow?: string[];
   tool_deny?: string[];
+  /** Scan args/content for credential-shaped secrets (jevgrep-inspired). */
+  scan_secrets?: boolean;
+  /** Allow opt-out for intentional secret-handling tasks. */
+  include_sensitive?: boolean;
 }
 
 export const DEFAULT_POLICY: PolicyConfig = {
@@ -27,4 +31,6 @@ export const DEFAULT_POLICY: PolicyConfig = {
   network: { default: "deny", allow: ["api.github.com"] },
   permission_deny_shapes: ["*", "*:*", "AdministratorAccess"],
   fail_closed: true,
+  scan_secrets: true,
+  include_sensitive: false,
 };

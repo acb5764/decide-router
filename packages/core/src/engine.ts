@@ -224,10 +224,18 @@ export class DecideEngine {
           action: "ask",
           hint:
             verdict.hint ??
-            "Mid confidence — cascade to LLM for final judgment.",
+            "Mid confidence — cascade to LLM for final judgment. Incomplete; not an authorization.",
           reasons: [...verdict.reasons, "below_min_confidence"],
+          completeness: "cascade_miss",
         };
       }
+    }
+
+    if (!verdict.completeness) {
+      verdict = {
+        ...verdict,
+        completeness: verdict.action === "ask" ? "incomplete" : "complete",
+      };
     }
 
     return this.finish(req, scores, { ...verdict, scores });
