@@ -1,6 +1,5 @@
 # Sample Cursor / Decide-Router config
 goal: "Ship features safely without touching production"
-# Hook adapters fail open unless fail_closed: true under policy
 playbooks:
   - safe-change
   - bootstrapped-alignment
@@ -8,8 +7,17 @@ bootstrap:
   onSessionStart: true
   minConfidence: 0.72
 policy:
-  fail_closed: false
+  # fail_closed controls invalid-regex handling — separate from process-crash fail-open
+  fail_closed: true
   scan_secrets: true
+  network:
+    default: allow
+    allow: []
+  # Opt-in restrictive egress sample (uncomment to enable deny-by-default):
+  # network:
+  #   default: deny
+  #   allow:
+  #     - api.github.com
 decisions:
   action_gate:
     min_confidence: 0.72
@@ -17,7 +25,5 @@ decisions:
   loop_detector:
     window: 12
     max_repeats: 2
-  context_prune:
-    enabled: true
 audit:
   path: "~/.cursor/decide-router/audit.jsonl"

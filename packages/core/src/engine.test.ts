@@ -130,7 +130,7 @@ describe("DecideEngine", () => {
     expect(traces).toHaveLength(1);
   });
 
-  it("fail-closes on backend error for security events", async () => {
+  it("fail-closes on backend error when failClosed is true", async () => {
     const bad: DecisionBackend = {
       name: "bad",
       async score() {
@@ -152,5 +152,29 @@ describe("DecideEngine", () => {
     const v = await engine.decide(req);
     expect(v.action).toBe("deny");
     expect(v.policyOverrides).toContain("fail_closed");
+  });
+
+  it("fails open (allow) on backend error when failClosed is false", async () => {
+    const bad: DecisionBackend = {
+      name: "bad",
+      async score() {
+        throw new Error("boom");
+      },
+    };
+    const engine = new DecideEngine({
+      backend: bad,
+      policy: allowPolicy,
+      config: { failClosed: false },
+    });
+    const req = normalizeEvent({
+      harness: "test",
+      hook: "beforeShellExecution",
+      sessionId: "s2",
+      goal: "x",
+      command: "echo hi",
+    });
+    const v = await engine.decide(req);
+    expect(v.action).toBe("allow");
+    expect(v.reasons.some((r) => r.includes("fail_open"))).toBe(true);
   });
 });

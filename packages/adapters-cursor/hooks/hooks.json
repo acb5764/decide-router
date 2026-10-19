@@ -22,7 +22,7 @@
     "preToolUse": [
       {
         "command": "./hooks/decide-router-pre-tool.mjs",
-        "matcher": "Shell|Bash|Write|Delete|Edit|StrReplace|MCP|mcp",
+        "matcher": "Write|Delete|Edit|StrReplace",
         "timeout": 7
       }
     ],
@@ -30,12 +30,6 @@
       {
         "command": "./hooks/decide-router-stop.mjs",
         "timeout": 5
-      }
-    ],
-    "preCompact": [
-      {
-        "command": "./hooks/decide-router-pre-compact.mjs",
-        "timeout": 8
       }
     ]
   }

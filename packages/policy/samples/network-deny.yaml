@@ -1,0 +1,6 @@
+# Opt-in sample — merge into decide-router.config.yaml policy.network to deny by default.
+# Not applied by DEFAULT_POLICY.
+default: deny
+allow:
+  - api.github.com
+deny: []

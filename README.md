@@ -93,28 +93,30 @@ Installs [`skills/decide-router/SKILL.md`](./skills/decide-router/SKILL.md) into
 
 ## How to run hooks (real authorization)
 
-Hooks are **not** markdown suggestions — they are Cursor authorization gates. They **fail open** if Decide-Router errors; deterministic policy can still `deny` when evaluation succeeds.
+Hooks are Cursor authorization gates. **Fail-open rule:** if the handler did not run or crashed → allow; if policy evaluated a deny → that deny stands. Install is a **user** command (not via the agent skill).
 
 ### Cursor
 
 ```bash
-pnpm build
+pnpm build                  # required — install refuses without dist/handlers
 pnpm install-hooks          # merges ~/.cursor/hooks.json + copies hooks/*.mjs
-decide-router-cursor status
+decide-router-cursor status # exits non-zero if hooks wired but dist missing
 ```
 
 | Event | Function | Authorizes |
 |-------|----------|------------|
-| `sessionStart` | `sessionStart()` | Session context + bootstrap |
+| `sessionStart` | `sessionStart()` | Session context; bootstrap rewrite only when preference sources change |
 | `beforeShellExecution` | `beforeShellExecution()` | Shell commands |
 | `beforeMCPExecution` | `beforeMCPExecution()` | MCP calls |
-| `preToolUse` | `preToolUse()` | Write/Delete/Shell/… (matcher) |
-| `stop` | `stop()` | Loop / distraction interrupt |
-| `preCompact` | `preCompact()` | Compaction advice |
+| `preToolUse` | `preToolUse()` | Write/Delete/Edit/StrReplace (not Shell/MCP) |
+| `stop` | `stop()` | Loop / distraction (reloads session from audit.jsonl) |
 
-Handlers live in `packages/adapters-cursor/src/handlers/`. Entrypoints: `packages/adapters-cursor/hooks/decide-router-*.mjs`.
+`preCompact` is **advisory only** (host may ignore) and is not installed as an authorization hook.
 
-Audit: `~/.cursor/decide-router/audit.jsonl` (configurable).
+Handlers: `packages/adapters-cursor/src/handlers/`. Entrypoints: `hooks/decide-router-*.mjs`.  
+Audit / session memory: `~/.cursor/decide-router/audit.jsonl`.
+
+Default **network policy is allow**. Opt into deny-by-default via `packages/policy/samples/network-deny.yaml` or your config.
 
 ### Claude Code
 

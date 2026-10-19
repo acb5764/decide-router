@@ -179,12 +179,44 @@ function looksLikeShell(req: DecisionRequest): boolean {
   );
 }
 
-function extractHost(text: string): string | undefined {
-  const m =
-    text.match(/https?:\/\/([^/\s:]+)/i) ||
-    text.match(/\b(?:curl|wget|fetch)\s+[^\s]*\s+([a-z0-9.-]+\.[a-z]{2,})/i) ||
-    text.match(/\b([a-z0-9.-]+\.[a-z]{2,})\b/i);
-  return m?.[1]?.toLowerCase();
+/**
+ * Extract a real network host from URL-shaped text only.
+ * Does **not** treat bare filenames (`README.md`, `hooks.json`, `foo.ts`) as hosts.
+ */
+export function extractHost(text: string): string | undefined {
+  if (!text) return undefined;
+
+  // scheme://host
+  const withScheme = text.match(/\bhttps?:\/\/([^/\s:?#]+)/i);
+  if (withScheme?.[1]) return stripPort(withScheme[1]).toLowerCase();
+
+  // curl/wget/fetch with explicit URL argument (scheme or //host)
+  const cliUrl = text.match(
+    /\b(?:curl|wget|fetch)\s+(?:[^\s]*\s+)*['"]?(?:https?:)?\/\/([^/\s:?#'"]+)/i,
+  );
+  if (cliUrl?.[1]) return stripPort(cliUrl[1]).toLowerCase();
+
+  // curl/wget host-only form: `curl example.com/path` (no file extension on host label)
+  const cliHost = text.match(
+    /\b(?:curl|wget|fetch)\s+(?:-[^\s]+\s+)*['"]?([a-z0-9.-]+\.[a-z]{2,})(?:[:/'"\s]|$)/i,
+  );
+  if (cliHost?.[1] && !looksLikeFilename(cliHost[1])) {
+    return cliHost[1].toLowerCase();
+  }
+
+  return undefined;
+}
+
+function stripPort(host: string): string {
+  // IPv6 in brackets not handled; fine for our allowlist use
+  return host.replace(/:\d+$/, "");
+}
+
+/** `README.md` / `hooks.json` / `foo.ts` — not a network host. */
+function looksLikeFilename(token: string): boolean {
+  return /\.(md|json|ya?ml|ts|tsx|js|mjs|cjs|jsx|py|go|rs|toml|lock|txt|css|html|svg|png|jpg)$/i.test(
+    token,
+  );
 }
 
 function hostMatches(host: string, rule: string): boolean {

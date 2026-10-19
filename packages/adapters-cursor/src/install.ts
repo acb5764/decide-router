@@ -35,7 +35,11 @@ export interface HooksJson {
   hooks: Record<string, HookEntry[]>;
 }
 
-/** Canonical Decide-Router hook wiring (authorization gates). */
+/**
+ * Authorization gates only.
+ * preCompact is advisory and is not wired as an authorization hook.
+ * Shell/MCP are gated by beforeShellExecution / beforeMCPExecution — not preToolUse.
+ */
 export const DECIDE_ROUTER_HOOKS: Record<string, HookEntry[]> = {
   sessionStart: [
     { command: `./hooks/${HOOK_PREFIX}session-start.mjs`, timeout: 8 },
@@ -49,14 +53,17 @@ export const DECIDE_ROUTER_HOOKS: Record<string, HookEntry[]> = {
   preToolUse: [
     {
       command: `./hooks/${HOOK_PREFIX}pre-tool.mjs`,
-      matcher: "Shell|Bash|Write|Delete|Edit|StrReplace|MCP|mcp",
+      matcher: "Write|Delete|Edit|StrReplace",
       timeout: 7,
     },
   ],
   stop: [{ command: `./hooks/${HOOK_PREFIX}stop.mjs`, timeout: 5 }],
-  preCompact: [
-    { command: `./hooks/${HOOK_PREFIX}pre-compact.mjs`, timeout: 8 },
-  ],
+};
+
+/** Optional advisory hook — not part of DECIDE_ROUTER_HOOKS install set. */
+export const PRECOMPACT_ADVISORY_HOOK: HookEntry = {
+  command: `./hooks/${HOOK_PREFIX}pre-compact.mjs`,
+  timeout: 8,
 };
 
 function hookBasename(command: string): string {
@@ -75,6 +82,12 @@ async function pathExists(path: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+export async function packageHandlersReady(
+  packageRoot = PACKAGE_ROOT,
+): Promise<boolean> {
+  return pathExists(join(packageRoot, "dist", "handlers", "before-shell.js"));
 }
 
 async function packageVersion(): Promise<string> {
@@ -103,6 +116,13 @@ export function upsertDecideRouterHooks(existing: HooksJson): HooksJson {
       else current.push(entry);
     }
     hooks[event] = current;
+  }
+  // Strip legacy preCompact authorization wiring if present
+  if (hooks.preCompact) {
+    hooks.preCompact = hooks.preCompact.filter(
+      (e) => !hookBasename(e.command).includes("decide-router-pre-compact"),
+    );
+    if (!hooks.preCompact.length) delete hooks.preCompact;
   }
   return { version: existing.version || 1, hooks };
 }
@@ -136,12 +156,19 @@ async function writeHooksJson(doc: HooksJson): Promise<void> {
 
 /** Install user-global hooks + compiled handlers into ~/.cursor */
 export async function installUserAssets(): Promise<void> {
+  const distSrc = join(PACKAGE_ROOT, "dist");
+  const handlersReady = await packageHandlersReady();
+  if (!handlersReady) {
+    throw new Error(
+      `Refuse to merge hooks.json: ${join(distSrc, "handlers")} missing. Run \`pnpm build\` in the Decide-Router package first.`,
+    );
+  }
+
   await mkdir(HOOKS_DIR, { recursive: true });
   await mkdir(DATA_DIR, { recursive: true });
 
   const installed: string[] = [];
 
-  // Copy hook entrypoints
   for (const name of await listHookFiles()) {
     const dest = join(HOOKS_DIR, name);
     await copyFile(join(PACKAGE_ROOT, "hooks", name), dest);
@@ -149,33 +176,22 @@ export async function installUserAssets(): Promise<void> {
     installed.push(dest);
     console.log(`installed ${dest}`);
   }
-  // Shared lib
   const libDest = join(HOOKS_DIR, "decide-router-lib.mjs");
   await copyFile(join(PACKAGE_ROOT, "hooks", "decide-router-lib.mjs"), libDest);
   await chmod(libDest, 0o755);
   installed.push(libDest);
 
-  // Copy built dist (handlers + runtime) so hooks can import without monorepo
-  const distSrc = join(PACKAGE_ROOT, "dist");
-  if (await pathExists(distSrc)) {
-    const distDest = join(DATA_DIR, "dist");
-    await rm(distDest, { recursive: true, force: true });
-    await cp(distSrc, distDest, { recursive: true });
-    installed.push(distDest);
-    console.log(`installed ${distDest}`);
-  } else {
-    console.warn(
-      `warning: ${distSrc} missing — run pnpm build before install for full authorization handlers`,
-    );
-  }
+  const distDest = join(DATA_DIR, "dist");
+  await rm(distDest, { recursive: true, force: true });
+  await cp(distSrc, distDest, { recursive: true });
+  installed.push(distDest);
+  console.log(`installed ${distDest}`);
 
-  // Copy package.json for version + workspace resolution hints
   await copyFile(
     join(PACKAGE_ROOT, "package.json"),
     join(DATA_DIR, "package.json"),
   );
 
-  // Sample / default config into data dir if absent
   const cfgDest = join(DATA_DIR, "decide-router.config.yaml");
   if (!(await pathExists(cfgDest))) {
     const sample = join(PACKAGE_ROOT, "sample-config.yaml");
@@ -192,12 +208,13 @@ export async function installUserAssets(): Promise<void> {
     installedAt: new Date().toISOString(),
     files: installed,
     hooks: Object.keys(DECIDE_ROUTER_HOOKS),
+    handlersReady: true,
     failOpen: true,
   };
   await writeFile(INSTALL_JSON, `${JSON.stringify(manifest, null, 2)}\n`);
   console.log(`wrote ${INSTALL_JSON}`);
   console.log(
-    "Done. Hooks authorize shell/MCP/tool use and fail open on errors.",
+    "Done. Authorization hooks: sessionStart, beforeShellExecution, beforeMCPExecution, preToolUse (non-shell/MCP), stop. Fail open if handlers crash.",
   );
 }
 
@@ -239,7 +256,10 @@ export async function statusUserAssets(): Promise<void> {
     join(HOOKS_DIR, "decide-router-lib.mjs"),
   );
   files["hooks.json"] = await pathExists(HOOKS_JSON);
-  files["decide-router/dist"] = await pathExists(join(DATA_DIR, "dist"));
+  const distOk = await pathExists(
+    join(DATA_DIR, "dist", "handlers", "before-shell.js"),
+  );
+  files["decide-router/dist/handlers"] = distOk;
 
   const hooksJson = await readHooksJson();
   const decideHookCount = hooksJson
@@ -249,22 +269,25 @@ export async function statusUserAssets(): Promise<void> {
       )
     : 0;
 
-  console.log(
-    JSON.stringify(
-      {
-        packageVersion: version,
-        installedVersion: manifest?.version ?? null,
-        installedAt: manifest?.installedAt ?? null,
-        current: manifest?.version === version,
-        decideHookCount,
-        wiredEvents: Object.keys(DECIDE_ROUTER_HOOKS),
-        failOpen: true,
-        files,
-        agentHome: AGENT_HOME,
-        dataDir: DATA_DIR,
-      },
-      null,
-      2,
-    ),
-  );
+  const unhealthy = decideHookCount > 0 && !distOk;
+  const payload = {
+    packageVersion: version,
+    installedVersion: manifest?.version ?? null,
+    installedAt: manifest?.installedAt ?? null,
+    current: manifest?.version === version,
+    decideHookCount,
+    handlersReady: distOk,
+    wiredEvents: Object.keys(DECIDE_ROUTER_HOOKS),
+    note: "preCompact is advisory-only and is not an authorization hook",
+    failOpen: true,
+    unhealthy,
+    unhealthyReason: unhealthy
+      ? "hooks.json references decide-router but dist/handlers is missing — fail-open stubs only"
+      : null,
+    files,
+    agentHome: AGENT_HOME,
+    dataDir: DATA_DIR,
+  };
+  console.log(JSON.stringify(payload, null, 2));
+  if (unhealthy) process.exitCode = 1;
 }

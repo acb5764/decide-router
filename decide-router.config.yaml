@@ -14,16 +14,16 @@ policy:
     - "wget.*\\|\\s*sh"
     - "chmod\\s+-R"
     - "chown\\s+-R"
+  # Default network policy is allow. To opt into deny-by-default, set:
+  #   network: { default: deny, allow: [api.github.com] }
   network:
-    default: deny
-    allow:
-      - "api.github.com"
+    default: allow
+    allow: []
   permission_deny_shapes:
     - "*"
     - "*:*"
     - "AdministratorAccess"
-  # Hook path fails open on engine/backend errors; policy still denies when it runs.
-  fail_closed: false
+  fail_closed: true
   scan_secrets: true
   include_sensitive: false
 decisions:

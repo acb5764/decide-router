@@ -19,10 +19,10 @@ export async function preToolUse(
   input: CursorHookInput = {},
 ): Promise<AuthHookResult> {
   return failOpen(async () => {
+    // Shell/MCP are owned by beforeShellExecution / beforeMCPExecution — not this matcher.
     const tool = toolNameOf(input) || "Unknown";
-    const isShell = /shell|bash|terminal/i.test(tool) || Boolean(commandOf(input));
     return authorizeHook({
-      hook: isShell ? "beforeShellExecution" : "preToolUse",
+      hook: "preToolUse",
       sessionId: sessionIdOf(input),
       toolName: tool,
       command: commandOf(input),

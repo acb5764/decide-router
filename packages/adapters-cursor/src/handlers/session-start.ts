@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import {
   cwdOf,
   failOpen,
@@ -6,11 +8,17 @@ import {
   type CursorHookInput,
   type SessionStartResult,
 } from "../hook-protocol.js";
-import { loadCursorConfig, runBootstrapForSession } from "../runtime.js";
+import {
+  dataDir,
+  handlersDistReady,
+  loadCursorConfig,
+  runBootstrapForSession,
+} from "../runtime.js";
 
 /**
- * sessionStart — bootstrap alignment + inject authorization guidance.
+ * sessionStart — bootstrap when sources change + inject guidance.
  * Always fail-open: never block session creation.
+ * Does not claim hooks are active when handlers dist is missing.
  */
 export async function sessionStart(
   input: CursorHookInput = {},
@@ -18,26 +26,46 @@ export async function sessionStart(
   return failOpen(async () => {
     const cwd = cwdOf(input);
     const cfg = loadCursorConfig(cwd);
+    const ready =
+      handlersDistReady(dataDir()) ||
+      existsSync(
+        join(
+          process.env.DECIDE_ROUTER_ROOT ?? "",
+          "dist",
+          "handlers",
+          "session-start.js",
+        ),
+      );
+
     let bootstrapNote = "";
     try {
       const artifact = await runBootstrapForSession(cwd);
       if (artifact) {
-        bootstrapNote = ` Loaded playbooks: ${artifact.trees.map((t) => t.id).join(", ") || "none"}.`;
+        bootstrapNote = ` Playbooks: ${artifact.trees.map((t) => t.id).join(", ") || "none"}.`;
       }
     } catch {
       bootstrapNote = " Bootstrap skipped (fail open).";
     }
 
-    const lines = [
-      "Decide-Router hooks are active for this session and authorize shell/MCP/tool use (fail open on errors).",
-      `Goal: ${cfg.goal}`,
-      "Gates: beforeShellExecution, beforeMCPExecution, preToolUse, stop, preCompact.",
-      "Judgment ≠ permission — deterministic policy may deny destructive actions; model scores alone never authorize them.",
-      bootstrapNote.trim(),
-    ].filter(Boolean);
+    const lines = ready
+      ? [
+          "Decide-Router authorization handlers are available for this session (fail open on crashes).",
+          `Goal: ${cfg.goal}`,
+          "Gates: beforeShellExecution, beforeMCPExecution, preToolUse (file edits), stop.",
+          "Judgment ≠ permission — deterministic policy may deny destructive actions; model scores alone never authorize them.",
+          bootstrapNote.trim(),
+        ]
+      : [
+          "Decide-Router handlers dist is not installed — hooks fail open (allow). Run a user install after `pnpm build` to enable authorization.",
+          `Goal: ${cfg.goal}`,
+          bootstrapNote.trim(),
+        ];
 
-    return { additional_context: lines.join(" ") };
-  }, { additional_context: "Decide-Router sessionStart fail-open." });
+    return { additional_context: lines.filter(Boolean).join(" ") };
+  }, {
+    additional_context:
+      "Decide-Router sessionStart fail-open (handlers unavailable).",
+  });
 }
 
 /** Hook entrypoint */

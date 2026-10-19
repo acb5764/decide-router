@@ -112,12 +112,15 @@ export class DecideEngine {
           policyOverrides: ["fail_closed"],
         });
       }
+      // Fail open when not fail-closed: handler/backend did not complete — do not pretend mid-confidence ask.
       return this.finish(req, undefined, {
-        action: "ask",
+        action: "allow",
         reasons: [
-          `backend_error:${err instanceof Error ? err.message : String(err)}`,
+          `backend_error_fail_open:${err instanceof Error ? err.message : String(err)}`,
         ],
         policyOverrides: [],
+        completeness: "incomplete",
+        hint: "Decide-Router backend unavailable — fail open (allow).",
       });
     }
 

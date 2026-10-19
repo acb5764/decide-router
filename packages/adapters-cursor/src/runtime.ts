@@ -1,12 +1,12 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { existsSync, readFileSync, statSync, writeFileSync, mkdirSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { parse as parseYaml } from "yaml";
 import {
   DecideEngine,
   MemorySessionTraceStore,
   normalizeEvent,
-  type ActionSummary,
   type DecisionEvent,
   type RawHarnessEvent,
   type Verdict,
@@ -24,8 +24,17 @@ import {
   DEFAULT_POLICY,
 } from "@decide-router/policy";
 import { TreeRegistry } from "@decide-router/trees";
-import { runBootstrap, type BootstrapArtifact } from "@decide-router/bootstrap";
+import {
+  ingestContextFiles,
+  runBootstrap,
+  type BootstrapArtifact,
+} from "@decide-router/bootstrap";
 import type { AuthHookResult, HookPermission } from "./hook-protocol.js";
+import {
+  appendAuditLine,
+  loadRecentActionsFromAudit,
+  resolveAuditPath,
+} from "./audit-log.js";
 
 export interface CursorAdapterConfig {
   goal: string;
@@ -33,11 +42,8 @@ export interface CursorAdapterConfig {
   bootstrap?: { onSessionStart?: boolean; minConfidence?: number };
   root?: string;
   auditPath?: string;
-  /** Hook path fails open on engine/backend errors (default true). */
-  failOpen?: boolean;
 }
 
-const recentBySession = new Map<string, ActionSummary[]>();
 let cachedBootstrap: BootstrapArtifact | undefined;
 let registry = new TreeRegistry();
 
@@ -45,6 +51,13 @@ export function dataDir(): string {
   return (
     process.env.DECIDE_ROUTER_DATA_DIR ??
     join(homedir(), ".cursor", "decide-router")
+  );
+}
+
+export function handlersDistReady(root = dataDir()): boolean {
+  return (
+    existsSync(join(root, "dist", "handlers", "before-shell.js")) ||
+    existsSync(join(root, "dist", "handlers", "session-start.js"))
   );
 }
 
@@ -63,7 +76,6 @@ export function loadCursorConfig(cwd = process.cwd()): CursorAdapterConfig {
         string,
         unknown
       >;
-      const policy = sample.policy as { fail_closed?: boolean } | undefined;
       return {
         goal: (root.goal as string) ?? "Complete the user task safely",
         playbooks: root.playbooks,
@@ -72,8 +84,6 @@ export function loadCursorConfig(cwd = process.cwd()): CursorAdapterConfig {
         auditPath:
           ((sample.audit as { path?: string } | undefined)?.path) ??
           join(dataDir(), "audit.jsonl"),
-        // Hooks fail open unless config explicitly fail_closed: true
-        failOpen: policy?.fail_closed !== true,
       };
     } catch {
       continue;
@@ -85,8 +95,14 @@ export function loadCursorConfig(cwd = process.cwd()): CursorAdapterConfig {
     bootstrap: { onSessionStart: true },
     root: cwd,
     auditPath: join(dataDir(), "audit.jsonl"),
-    failOpen: true,
   };
+}
+
+export function auditPathFor(cfg: CursorAdapterConfig): string {
+  return resolveAuditPath(
+    cfg.auditPath ?? join(dataDir(), "audit.jsonl"),
+    cfg.root ?? process.cwd(),
+  );
 }
 
 export function createEngine(cfg: CursorAdapterConfig): DecideEngine {
@@ -95,7 +111,7 @@ export function createEngine(cfg: CursorAdapterConfig): DecideEngine {
     ? policyFromRootConfig(
         loadRootConfig(join(rootPath, "decide-router.config.yaml")),
       )
-    : { ...DEFAULT_POLICY, fail_closed: false };
+    : { ...DEFAULT_POLICY };
 
   if (cachedBootstrap?.policyOverlayHints) {
     policyConfig = mergePolicyOverlay(policyConfig, {
@@ -111,8 +127,8 @@ export function createEngine(cfg: CursorAdapterConfig): DecideEngine {
     });
   }
 
-  // Hook adapters fail open: engine errors → allow (policy still denies when it runs)
-  policyConfig = { ...policyConfig, fail_closed: false };
+  // Do NOT force fail_closed: false — that flag is for invalid-regex handling,
+  // separate from process-crash fail-open.
 
   const playbookId =
     cfg.playbooks?.find((id) => registry.get(id)) ??
@@ -133,8 +149,30 @@ export function createEngine(cfg: CursorAdapterConfig): DecideEngine {
     policy: new DeterministicPolicyEngine(policyConfig),
     store: new MemorySessionTraceStore(),
     playbook,
+    // Backend crash → allow (fail open). Policy denials still apply when evaluated.
     config: { failClosed: false },
   });
+}
+
+/** Fingerprint preference sources; rewrite bootstrap only when this changes. */
+export function bootstrapSourceFingerprint(cwd: string): string {
+  const files = ingestContextFiles(cwd);
+  const h = createHash("sha256");
+  for (const f of files.sort((a, b) =>
+    a.relativePath.localeCompare(b.relativePath),
+  )) {
+    h.update(f.relativePath);
+    h.update("\0");
+    try {
+      h.update(String(statSync(f.path).mtimeMs));
+      h.update("\0");
+      h.update(f.content);
+    } catch {
+      h.update("missing");
+    }
+    h.update("\n");
+  }
+  return h.digest("hex");
 }
 
 export async function runBootstrapForSession(
@@ -142,6 +180,35 @@ export async function runBootstrapForSession(
 ): Promise<BootstrapArtifact | undefined> {
   const cfg = loadCursorConfig(cwd);
   if (cfg.bootstrap?.onSessionStart === false) return undefined;
+
+  const fp = bootstrapSourceFingerprint(cwd);
+  const bootDir = join(cwd, ".decide-router", "bootstrap");
+  const fpPath = join(bootDir, "fingerprint.json");
+  const artifactPath = join(bootDir, "artifact.json");
+
+  let previous: string | undefined;
+  try {
+    previous = (
+      JSON.parse(readFileSync(fpPath, "utf8")) as { fingerprint?: string }
+    ).fingerprint;
+  } catch {
+    previous = undefined;
+  }
+
+  if (previous === fp && existsSync(artifactPath)) {
+    try {
+      const artifact = JSON.parse(
+        readFileSync(artifactPath, "utf8"),
+      ) as BootstrapArtifact;
+      cachedBootstrap = artifact;
+      registry = new TreeRegistry();
+      registry.overlay.load(artifact.trees);
+      return artifact;
+    } catch {
+      /* fall through to rewrite */
+    }
+  }
+
   const artifact = await runBootstrap({
     root: cwd,
     writeArtifacts: true,
@@ -150,10 +217,22 @@ export async function runBootstrapForSession(
   cachedBootstrap = artifact;
   registry = new TreeRegistry();
   registry.overlay.load(artifact.trees);
-  audit(cfg, {
+  try {
+    mkdirSync(bootDir, { recursive: true });
+    writeFileSync(
+      fpPath,
+      JSON.stringify({ fingerprint: fp, at: new Date().toISOString() }, null, 2) +
+        "\n",
+    );
+  } catch {
+    /* best-effort */
+  }
+  appendAuditLine(auditPathFor(cfg), {
     type: "bootstrap",
+    sessionId: "bootstrap",
     trees: artifact.trees.map((t) => t.id),
     rules: artifact.rules.length,
+    fingerprint: fp,
   });
   return artifact;
 }
@@ -173,7 +252,10 @@ export async function authorizeHook(input: {
   const cwd = input.cwd ?? process.cwd();
   const cfg = loadCursorConfig(cwd);
   const sessionId = input.sessionId ?? "cursor-session";
-  const recent = recentBySession.get(sessionId) ?? [];
+  const path = auditPathFor(cfg);
+
+  // Cross-process session memory: reload from audit.jsonl every hook
+  const recent = loadRecentActionsFromAudit(path, sessionId, 50);
 
   try {
     const engine = createEngine(cfg);
@@ -192,36 +274,44 @@ export async function authorizeHook(input: {
     const req = normalizeEvent(raw);
     const verdict = await engine.decide(req);
 
-    if (input.hook === "postToolUse") {
-      recent.push({
-        toolName: input.toolName ?? "unknown",
-        argsPreview:
-          typeof input.args === "string"
-            ? input.args.slice(0, 200)
-            : JSON.stringify(input.args ?? {}).slice(0, 200),
-        outcome: verdict.action === "deny" ? "denied" : "ok",
-        timestamp: Date.now(),
-      });
-      recentBySession.set(sessionId, recent.slice(-50));
-    } else if (
+    const toolName =
+      input.toolName ?? (input.command ? "Shell" : undefined) ?? "unknown";
+    const argsPreview = (
+      input.command ??
+      (typeof input.args === "string"
+        ? input.args
+        : JSON.stringify(input.args ?? {}))
+    ).slice(0, 200);
+    const outcome =
+      verdict.action === "deny"
+        ? "denied"
+        : input.hook === "postToolUse"
+          ? "ok"
+          : "unknown";
+
+    if (
+      input.hook === "postToolUse" ||
       input.hook === "beforeShellExecution" ||
       input.hook === "beforeMCPExecution" ||
       input.hook === "preToolUse"
     ) {
-      // Track attempted actions for loop detection even before post
-      recent.push({
-        toolName: input.toolName ?? (input.command ? "Shell" : "unknown"),
-        argsPreview: (input.command ?? JSON.stringify(input.args ?? "")).slice(
-          0,
-          200,
-        ),
-        outcome: verdict.action === "deny" ? "denied" : "unknown",
-        timestamp: Date.now(),
+      appendAuditLine(path, {
+        type: "action",
+        sessionId,
+        hook: input.hook,
+        toolName,
+        argsPreview,
+        outcome,
+        verdict: { action: verdict.action, reasons: verdict.reasons },
       });
-      recentBySession.set(sessionId, recent.slice(-50));
+    } else {
+      appendAuditLine(path, {
+        type: "hook",
+        sessionId,
+        hook: input.hook,
+        verdict: { action: verdict.action, reasons: verdict.reasons },
+      });
     }
-
-    audit(cfg, { hook: input.hook, sessionId, verdict });
 
     const permission = verdictToPermission(verdict);
     const message =
@@ -236,17 +326,17 @@ export async function authorizeHook(input: {
       verdict,
     };
   } catch (err) {
-    // Fail open — never block the agent because Decide-Router crashed
-    audit(cfg, {
-      hook: input.hook,
+    // Fail open — handler crashed; policy did not evaluate
+    appendAuditLine(path, {
+      type: "fail_open",
       sessionId,
-      failOpen: true,
+      hook: input.hook,
       error: err instanceof Error ? err.message : String(err),
     });
     return {
       permission: "allow",
       agent_message:
-        "Decide-Router error — fail open (allow). Do not spend tokens compensating.",
+        "Decide-Router error — fail open (allow). Handlers crashed; do not spend tokens compensating.",
       reasons: ["fail_open"],
     };
   }
@@ -276,23 +366,6 @@ function verdictToPermission(verdict: Verdict): HookPermission {
   if (verdict.action === "deny") return "deny";
   if (verdict.action === "ask") return "ask";
   return "allow";
-}
-
-function audit(cfg: CursorAdapterConfig, payload: unknown): void {
-  const path = resolve(
-    cfg.auditPath?.startsWith("/") || cfg.auditPath?.startsWith("~")
-      ? cfg.auditPath.replace(/^~/, homedir())
-      : join(cfg.root ?? process.cwd(), cfg.auditPath ?? join(dataDir(), "audit.jsonl")),
-  );
-  try {
-    mkdirSync(dirname(path), { recursive: true });
-    appendFileSync(
-      path,
-      JSON.stringify({ ts: Date.now(), ...((payload as object) ?? {}) }) + "\n",
-    );
-  } catch {
-    /* best-effort */
-  }
 }
 
 export type { DecisionEvent, Verdict };
